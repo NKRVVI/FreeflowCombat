@@ -76,3 +76,5 @@ DerivedDataCache/*
 Conten/*
 *.uproject
 *.ini
+*.uasset
+*.umap
