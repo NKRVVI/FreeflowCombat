@@ -13,6 +13,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Characters/Enemy.h"
 #include "DrawDebugHelpers.h"
+#include "MotionWarpingComponent.h"
 
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
@@ -21,6 +22,7 @@ DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
 AFreeflowCombatCharacter::AFreeflowCombatCharacter()
 {
+	PrimaryActorTick.bCanEverTick = true;
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
 		
@@ -55,6 +57,15 @@ AFreeflowCombatCharacter::AFreeflowCombatCharacter()
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
+
+	MotionWarpingComponent = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarpingComponent"));
+}
+
+void AFreeflowCombatCharacter::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	WarpToTarget();
 }
 
 void AFreeflowCombatCharacter::BeginPlay()
@@ -80,8 +91,55 @@ void AFreeflowCombatCharacter::BeginPlay()
 	}
 }
 
+void AFreeflowCombatCharacter::WarpToTarget()
+{
+	if (CombatTarget && MotionWarpingComponent)
+	{
+		MotionWarpingComponent->AddOrUpdateWarpTargetFromLocation(FName("TranslationTarget"), GetTranslationWarpTarget());
+		MotionWarpingComponent->AddOrUpdateWarpTargetFromLocation(FName("RotationTarget"), GetRotationWarpTarget());
+	}
+	else
+	{
+		MotionWarpingComponent->RemoveWarpTarget(FName("TranslationTarget"));
+		MotionWarpingComponent->RemoveWarpTarget(FName("RotationTarget"));
+	}
+}
+
+FVector AFreeflowCombatCharacter::GetTranslationWarpTarget()
+{
+	if (!CombatTarget) return FVector();
+
+	const FVector CombatTargetLocation = CombatTarget->GetActorLocation();
+	const FVector Location = GetActorLocation();
+
+	FVector TargetToMe = (Location - CombatTargetLocation).GetSafeNormal();
+	TargetToMe *= WarpTargetDistance;
+	return CombatTargetLocation + TargetToMe;
+}
+
+FVector AFreeflowCombatCharacter::GetRotationWarpTarget()
+{
+	if (CombatTarget)
+	{
+		return CombatTarget->GetActorLocation();
+	}
+	return FVector();
+}
+
 //////////////////////////////////////////////////////////////////////////
 // Input
+
+void AFreeflowCombatCharacter::AttackEnd()
+{
+	bIsAttacking = false;
+	CombatTarget = nullptr;
+}
+
+void AFreeflowCombatCharacter::HitLanded()
+{
+	FVector Force = (CombatTarget->GetActorLocation() - GetActorLocation()).GetSafeNormal() * 100;
+	CombatTarget->GetHit(Force);
+}
 
 void AFreeflowCombatCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
@@ -89,14 +147,17 @@ void AFreeflowCombatCharacter::SetupPlayerInputComponent(UInputComponent* Player
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent)) {
 		
 		// Jumping
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
+		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ThisClass::Jump);
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
 
 		// Moving
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AFreeflowCombatCharacter::Move);
+		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Completed, this, &ThisClass::NotMoving);
 
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AFreeflowCombatCharacter::Look);
+
+		EnhancedInputComponent->BindAction(AttackAction, ETriggerEvent::Triggered, this, &ThisClass::Attack);
 	}
 	else
 	{
@@ -106,8 +167,10 @@ void AFreeflowCombatCharacter::SetupPlayerInputComponent(UInputComponent* Player
 
 void AFreeflowCombatCharacter::Move(const FInputActionValue& Value)
 {
+	if (bIsAttacking) return;
 	// input is a Vector2D
 	FVector2D MovementVector = Value.Get<FVector2D>();
+	UE_LOG(LogTemp, Warning, TEXT("%s"), *MovementVector.ToString());
 
 	if (Controller != nullptr)
 	{
@@ -127,8 +190,11 @@ void AFreeflowCombatCharacter::Move(const FInputActionValue& Value)
 
 		//////////////////////////////////////////////////////////////////////////////////////////////
 		//  FREEFLOW ENEMY SELECTION
-		/////////////////////////////////////////////////////////////////////////////////////////////
-		if (MovementVector == FVector2D::ZeroVector) return;
+
+		if (MovementVector == FVector2D::ZeroVector)
+		{
+			return;
+		}
 
 		FVector InputDirection = (ForwardDirection * MovementVector.Y + RightDirection * MovementVector.X).GetSafeNormal2D();
 		DrawDebugLine(GetWorld(), GetActorLocation(), GetActorLocation() + InputDirection * 1000, FColor::Orange, false);
@@ -158,6 +224,7 @@ void AFreeflowCombatCharacter::Move(const FInputActionValue& Value)
 		for (auto Enemy : ClosestEnemies)
 		{
 			DrawDebugSphere(GetWorld(), Enemy->GetActorLocation(), 20, 12, FColor::Red, false);
+			CombatTarget = Cast<AEnemy>(Enemy);
 		}
 	}
 }
@@ -173,4 +240,47 @@ void AFreeflowCombatCharacter::Look(const FInputActionValue& Value)
 		AddControllerYawInput(LookAxisVector.X);
 		AddControllerPitchInput(LookAxisVector.Y);
 	}
+}
+
+void AFreeflowCombatCharacter::Attack(const FInputActionValue& Value)
+{
+	if (!CombatTarget || bIsAttacking) return;
+
+	bIsAttacking = true;
+	PlayRandomMontageSection(AttackMontage);
+}
+
+void AFreeflowCombatCharacter::NotMoving(const FInputActionValue& Value)
+{
+	/////////////////////////////////////////////////////////////////////////////////////////////
+	if (bIsAttacking) return;
+	
+	CombatTarget = nullptr;
+}
+
+void AFreeflowCombatCharacter::Jump()
+{
+	if (bIsAttacking) return;
+	Super::Jump();
+}
+
+void AFreeflowCombatCharacter::PlayMontageSection(UAnimMontage* Montage, FName SectionName)
+{
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && Montage)
+	{
+		AnimInstance->Montage_Play(Montage);
+		AnimInstance->Montage_JumpToSection(SectionName);
+	}
+}
+
+void AFreeflowCombatCharacter::PlayRandomMontageSection(UAnimMontage* Montage)
+{
+	if (!Montage) return;
+
+	int32 NumSection = Montage->CompositeSections.Num();
+	int32 RandomSelection = FMath::RandRange(0, NumSection - 1);
+	FName RandomSectionName = Montage->GetSectionName(RandomSelection);
+
+	PlayMontageSection(Montage, RandomSectionName);
 }

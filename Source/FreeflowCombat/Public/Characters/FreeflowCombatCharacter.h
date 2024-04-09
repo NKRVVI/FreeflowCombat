@@ -44,8 +44,14 @@ class AFreeflowCombatCharacter : public ACharacter
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* LookAction;
 
+	/* attack input action*/
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	UInputAction* AttackAction;
+
 public:
 	AFreeflowCombatCharacter();
+
+	virtual void Tick(float DeltaTime) override;
 	
 
 protected:
@@ -56,11 +62,31 @@ protected:
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
 
+	void Attack(const FInputActionValue& Value);
+
+	void NotMoving(const FInputActionValue& Value);
+
+	virtual void Jump() override;
+
+	void PlayMontageSection(UAnimMontage* Montage, FName SectionName);
+	void PlayRandomMontageSection(UAnimMontage* Montage);
+
 	TArray<class AEnemy*> Enemies;
 
 	UPROPERTY(EditDefaultsOnly)
 	float EnemySelectionErrorRate;
 			
+	UPROPERTY(BlueprintReadOnly)
+	class UMotionWarpingComponent* MotionWarpingComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	bool bIsAttacking;
+
+	UFUNCTION(BlueprintCallable)
+	void AttackEnd();
+
+	UFUNCTION(BlueprintCallable)
+	void HitLanded();
 
 protected:
 	// APawn interface
@@ -68,6 +94,19 @@ protected:
 	
 	// To add mapping context
 	virtual void BeginPlay();
+
+	void WarpToTarget();
+	FVector GetTranslationWarpTarget();
+	FVector GetRotationWarpTarget();
+
+	UPROPERTY(BlueprintReadOnly)
+	class AEnemy* CombatTarget;
+
+	UPROPERTY(EditAnywhere)
+	double WarpTargetDistance = 75.f;
+
+	UPROPERTY(EditDefaultsOnly)
+	UAnimMontage* AttackMontage;
 
 public:
 	/** Returns CameraBoom subobject **/

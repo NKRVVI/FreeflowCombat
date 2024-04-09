@@ -35,11 +35,65 @@ AEnemy::AEnemy()
 
 }
 
+void AEnemy::GetHit(FVector ImpactDirection)
+{
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && HitReactMontage)
+	{
+		AnimInstance->Montage_Play(HitReactMontage);
+	}
+
+	//GetMesh()->SetSimulatePhysics(true);
+	//GetMesh()->AddForce(ImpactDirection);
+	GetWorldTimerManager().SetTimer(GetUpTimer, this, &ThisClass::GetUp, GetUpTime);
+}
+
+void AEnemy::Attack()
+{
+	PlayRandomMontageSection(AttackMontage);
+}
+
 // Called when the game starts or when spawned
 void AEnemy::BeginPlay()
 {
 	Super::BeginPlay();
 	
+}
+
+void AEnemy::PlayMontageSection(UAnimMontage* Montage, FName SectionName)
+{
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && Montage)
+	{
+		AnimInstance->Montage_Play(Montage);
+		AnimInstance->Montage_JumpToSection(SectionName);
+	}
+}
+
+void AEnemy::PlayRandomMontageSection(UAnimMontage* Montage)
+{
+	if (!Montage) return;
+
+	int32 NumSection = Montage->CompositeSections.Num();
+	int32 RandomSelection = FMath::RandRange(0, NumSection - 1);
+	FName RandomSectionName = Montage->GetSectionName(RandomSelection);
+
+	PlayMontageSection(Montage, RandomSectionName);
+}
+
+void AEnemy::AttackEnd()
+{
+	AttackEndDelegate.Broadcast();
+}
+
+void AEnemy::GetUp()
+{
+	GetMesh()->SetSimulatePhysics(false);
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && GetUpMontage)
+	{
+		AnimInstance->Montage_Play(GetUpMontage);
+	}
 }
 
 // Called every frame
