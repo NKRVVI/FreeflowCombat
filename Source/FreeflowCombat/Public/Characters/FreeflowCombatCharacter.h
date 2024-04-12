@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "Logging/LogMacros.h"
+#include "Characters/ActionStates.h"
 #include "FreeflowCombatCharacter.generated.h"
 
 class USpringArmComponent;
@@ -48,10 +49,15 @@ class AFreeflowCombatCharacter : public ACharacter
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* AttackAction;
 
+	/* counter input action*/
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	UInputAction* CounterAction;
+
 public:
 	AFreeflowCombatCharacter();
 
 	virtual void Tick(float DeltaTime) override;
+	void GetHit(FVector ImpactDirection);
 	
 
 protected:
@@ -67,6 +73,8 @@ protected:
 	void NotMoving(const FInputActionValue& Value);
 
 	virtual void Jump() override;
+
+	void Counter(const FInputActionValue& Value);
 
 	void PlayMontageSection(UAnimMontage* Montage, FName SectionName);
 	void PlayRandomMontageSection(UAnimMontage* Montage);
@@ -88,6 +96,21 @@ protected:
 	UFUNCTION(BlueprintCallable)
 	void HitLanded();
 
+	UFUNCTION(BlueprintCallable)
+	void HitReactEnd();
+
+	UFUNCTION(BlueprintCallable)
+	void DodgeEnd();
+
+	UFUNCTION(BlueprintCallable)
+	void CounterEnd();
+
+	UFUNCTION(BlueprintCallable)
+	void CounterLanded();
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	EFreeflowActionState ActionState = EFreeflowActionState::EFAS_Unoccupied;
+
 protected:
 	// APawn interface
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -96,22 +119,59 @@ protected:
 	virtual void BeginPlay();
 
 	void WarpToTarget();
-	FVector GetTranslationWarpTarget();
-	FVector GetRotationWarpTarget();
+	FVector GetTranslationWarpTarget(AActor* Target);
+	FVector GetRotationWarpTarget(AActor* Target);
+
+	UPROPERTY()
+	class AEnemy* CombatTarget;
+
+	UPROPERTY()
+	AEnemy* LastCombatTarget;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	EPunchType CurrentPunchType = EPunchType::EPT_Standard;
+
+	UPROPERTY(VisibleAnywhere)
+	EPunchType LastPunchType = EPunchType::EPT_Standard;
 
 	UPROPERTY(BlueprintReadOnly)
-	class AEnemy* CombatTarget;
+	AEnemy* CounterTarget;
 
 	UPROPERTY(EditAnywhere)
 	double WarpTargetDistance = 75.f;
 
 	UPROPERTY(EditDefaultsOnly)
-	UAnimMontage* AttackMontage;
+	UAnimMontage* FreeflowAttackMontage;
+
+	UPROPERTY(EditDefaultsOnly)
+	UAnimMontage* StandardAttackMontage;
+
+	UPROPERTY(EditDefaultsOnly)
+	UAnimMontage* KnockoutAttackMontage;
+
+	UPROPERTY(EditDefaultsOnly)
+	UAnimMontage* HitReactMontage;
+
+	UPROPERTY(EditDefaultsOnly)
+	UAnimMontage* DodgeMontage;
+
+	UPROPERTY(EditDefaultsOnly)
+	UAnimMontage* CounterMontage;
+
+	UPROPERTY(EditDefaultsOnly)
+	class USoundCue* HitSound;
+
+	UPROPERTY(EditDefaultsOnly)
+	USoundCue* KnockoutSound;
 
 public:
 	/** Returns CameraBoom subobject **/
 	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+
+	FORCEINLINE void SetCounterTarget(AEnemy* Target) { CounterTarget = Target; }
+	FORCEINLINE AEnemy* GetCounterTarget() const { return CounterTarget; }
+	FORCEINLINE EFreeflowActionState GetActionState() const { return ActionState; }
 };
 

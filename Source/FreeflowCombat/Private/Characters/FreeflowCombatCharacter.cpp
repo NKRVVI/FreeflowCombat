@@ -14,6 +14,7 @@
 #include "Characters/Enemy.h"
 #include "DrawDebugHelpers.h"
 #include "MotionWarpingComponent.h"
+#include "Sound/SoundCue.h"
 
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
@@ -68,6 +69,12 @@ void AFreeflowCombatCharacter::Tick(float DeltaTime)
 	WarpToTarget();
 }
 
+void AFreeflowCombatCharacter::GetHit(FVector ImpactDirection)
+{
+	ActionState = EFreeflowActionState::EFAS_HitReaction;
+	PlayRandomMontageSection(HitReactMontage);
+}
+
 void AFreeflowCombatCharacter::BeginPlay()
 {
 	// Call the base class  
@@ -93,23 +100,31 @@ void AFreeflowCombatCharacter::BeginPlay()
 
 void AFreeflowCombatCharacter::WarpToTarget()
 {
-	if (CombatTarget && MotionWarpingComponent)
+	if (CounterTarget && MotionWarpingComponent && ActionState == EFreeflowActionState::EFAS_Counter)
 	{
-		MotionWarpingComponent->AddOrUpdateWarpTargetFromLocation(FName("TranslationTarget"), GetTranslationWarpTarget());
-		MotionWarpingComponent->AddOrUpdateWarpTargetFromLocation(FName("RotationTarget"), GetRotationWarpTarget());
+		MotionWarpingComponent->AddOrUpdateWarpTargetFromLocation(FName("TranslationTarget"), GetTranslationWarpTarget(CounterTarget));
+		MotionWarpingComponent->AddOrUpdateWarpTargetFromLocation(FName("RotationTarget"), GetRotationWarpTarget(CounterTarget));
+
+	}
+	else if (CombatTarget && MotionWarpingComponent && ActionState == EFreeflowActionState::EFAS_Attacking)
+	{
+		MotionWarpingComponent->AddOrUpdateWarpTargetFromLocation(FName("TranslationTarget"), GetTranslationWarpTarget(CombatTarget));
+		MotionWarpingComponent->AddOrUpdateWarpTargetFromLocation(FName("RotationTarget"), GetRotationWarpTarget(CombatTarget));
+
 	}
 	else
 	{
 		MotionWarpingComponent->RemoveWarpTarget(FName("TranslationTarget"));
 		MotionWarpingComponent->RemoveWarpTarget(FName("RotationTarget"));
+
 	}
 }
 
-FVector AFreeflowCombatCharacter::GetTranslationWarpTarget()
+FVector AFreeflowCombatCharacter::GetTranslationWarpTarget(AActor* Target)
 {
-	if (!CombatTarget) return FVector();
+	if (!Target) return FVector();
 
-	const FVector CombatTargetLocation = CombatTarget->GetActorLocation();
+	const FVector CombatTargetLocation = Target->GetActorLocation();
 	const FVector Location = GetActorLocation();
 
 	FVector TargetToMe = (Location - CombatTargetLocation).GetSafeNormal();
@@ -117,11 +132,11 @@ FVector AFreeflowCombatCharacter::GetTranslationWarpTarget()
 	return CombatTargetLocation + TargetToMe;
 }
 
-FVector AFreeflowCombatCharacter::GetRotationWarpTarget()
+FVector AFreeflowCombatCharacter::GetRotationWarpTarget(AActor* Target)
 {
-	if (CombatTarget)
+	if (Target)
 	{
-		return CombatTarget->GetActorLocation();
+		return Target->GetActorLocation();
 	}
 	return FVector();
 }
@@ -133,12 +148,46 @@ void AFreeflowCombatCharacter::AttackEnd()
 {
 	bIsAttacking = false;
 	CombatTarget = nullptr;
+	ActionState = EFreeflowActionState::EFAS_Unoccupied;
 }
 
 void AFreeflowCombatCharacter::HitLanded()
 {
 	FVector Force = (CombatTarget->GetActorLocation() - GetActorLocation()).GetSafeNormal() * 100;
-	CombatTarget->GetHit(Force);
+	if (CurrentPunchType < EPunchType::EPT_Knockout && HitSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, HitSound, GetActorLocation());
+	}
+	else if (CurrentPunchType == EPunchType::EPT_Knockout && KnockoutSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, KnockoutSound, GetActorLocation());
+	}
+	CombatTarget->GetHit(GetActorLocation(), CurrentPunchType);
+}
+
+void AFreeflowCombatCharacter::HitReactEnd()
+{
+	ActionState = EFreeflowActionState::EFAS_Unoccupied;
+}
+
+void AFreeflowCombatCharacter::DodgeEnd()
+{
+	PlayRandomMontageSection(CounterMontage);
+}
+
+void AFreeflowCombatCharacter::CounterEnd()
+{
+	ActionState = EFreeflowActionState::EFAS_Unoccupied;
+	//CounterTarget = nullptr;
+}
+
+void AFreeflowCombatCharacter::CounterLanded()
+{
+	if (CounterTarget)
+	{
+		CounterTarget->GetCountered();
+		CounterTarget = nullptr;
+	}
 }
 
 void AFreeflowCombatCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -158,6 +207,7 @@ void AFreeflowCombatCharacter::SetupPlayerInputComponent(UInputComponent* Player
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AFreeflowCombatCharacter::Look);
 
 		EnhancedInputComponent->BindAction(AttackAction, ETriggerEvent::Triggered, this, &ThisClass::Attack);
+		EnhancedInputComponent->BindAction(CounterAction, ETriggerEvent::Triggered, this, &ThisClass::Counter);
 	}
 	else
 	{
@@ -167,7 +217,7 @@ void AFreeflowCombatCharacter::SetupPlayerInputComponent(UInputComponent* Player
 
 void AFreeflowCombatCharacter::Move(const FInputActionValue& Value)
 {
-	if (bIsAttacking) return;
+	if (ActionState != EFreeflowActionState::EFAS_Unoccupied) return;
 	// input is a Vector2D
 	FVector2D MovementVector = Value.Get<FVector2D>();
 	UE_LOG(LogTemp, Warning, TEXT("%s"), *MovementVector.ToString());
@@ -205,6 +255,8 @@ void AFreeflowCombatCharacter::Move(const FInputActionValue& Value)
 		float ClosestAngle = 180.f;
 		for (AEnemy* Enemy : Enemies)
 		{
+			if (Enemy->GetActionState() == EEnemyActionState::EEAS_Down) continue;
+
 			FVector DirectionToEnemy = (Enemy->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
 			float EnemyAngle = FMath::Abs(FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(InputDirection, DirectionToEnemy))));
 			Enemy->UpdateEnemyHUD(EnemyAngle);
@@ -221,6 +273,7 @@ void AFreeflowCombatCharacter::Move(const FInputActionValue& Value)
 
 		}
 
+		CombatTarget = nullptr;
 		for (auto Enemy : ClosestEnemies)
 		{
 			DrawDebugSphere(GetWorld(), Enemy->GetActorLocation(), 20, 12, FColor::Red, false);
@@ -244,16 +297,37 @@ void AFreeflowCombatCharacter::Look(const FInputActionValue& Value)
 
 void AFreeflowCombatCharacter::Attack(const FInputActionValue& Value)
 {
-	if (!CombatTarget || bIsAttacking) return;
+	if (!CombatTarget || ActionState != EFreeflowActionState::EFAS_Unoccupied || CombatTarget->GetActionState() == EEnemyActionState::EEAS_Down) return;
+
+	UAnimMontage* ChosenMontage = nullptr;
+
+	if (!LastCombatTarget || LastCombatTarget != CombatTarget)
+	{
+		CurrentPunchType = EPunchType::EPT_Freeflow;
+		ChosenMontage = FreeflowAttackMontage;
+	}
+	else if (LastCombatTarget == CombatTarget && CurrentPunchType == EPunchType::EPT_Freeflow)
+	{
+		CurrentPunchType = EPunchType::EPT_Standard;
+		ChosenMontage = StandardAttackMontage;
+	}
+	else if (LastCombatTarget == CombatTarget && CurrentPunchType == EPunchType::EPT_Standard)
+	{
+		CurrentPunchType = EPunchType::EPT_Knockout;
+		ChosenMontage = KnockoutAttackMontage;
+	}
+
+	LastCombatTarget = CombatTarget;
 
 	bIsAttacking = true;
-	PlayRandomMontageSection(AttackMontage);
+	ActionState = EFreeflowActionState::EFAS_Attacking;
+	PlayRandomMontageSection(ChosenMontage);
 }
 
 void AFreeflowCombatCharacter::NotMoving(const FInputActionValue& Value)
 {
 	/////////////////////////////////////////////////////////////////////////////////////////////
-	if (bIsAttacking) return;
+	if (ActionState == EFreeflowActionState::EFAS_Attacking) return;
 	
 	CombatTarget = nullptr;
 }
@@ -262,6 +336,14 @@ void AFreeflowCombatCharacter::Jump()
 {
 	if (bIsAttacking) return;
 	Super::Jump();
+}
+
+void AFreeflowCombatCharacter::Counter(const FInputActionValue& Value)
+{
+	if (!CounterTarget || ActionState == EFreeflowActionState::EFAS_Counter) return;
+	ActionState = EFreeflowActionState::EFAS_Counter;
+
+	PlayRandomMontageSection(DodgeMontage);
 }
 
 void AFreeflowCombatCharacter::PlayMontageSection(UAnimMontage* Montage, FName SectionName)
