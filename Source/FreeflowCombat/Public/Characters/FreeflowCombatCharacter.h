@@ -108,6 +108,9 @@ protected:
 	UFUNCTION(BlueprintCallable)
 	void CounterLanded();
 
+	UFUNCTION(BlueprintCallable)
+	void BlockAttack();
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	EFreeflowActionState ActionState = EFreeflowActionState::EFAS_Unoccupied;
 
@@ -120,7 +123,9 @@ protected:
 
 	void WarpToTarget();
 	FVector GetTranslationWarpTarget(AActor* Target);
+	FVector GetTranslationWarpTarget(FVector Target);
 	FVector GetRotationWarpTarget(AActor* Target);
+	FVector GetRotationWarpTarget(FVector Target);
 
 	UPROPERTY()
 	class AEnemy* CombatTarget;

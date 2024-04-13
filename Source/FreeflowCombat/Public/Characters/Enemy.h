@@ -7,7 +7,7 @@
 #include "Characters/ActionStates.h"
 #include "Enemy.generated.h"
 
-DECLARE_MULTICAST_DELEGATE(FAttackEndDelegate)
+DECLARE_MULTICAST_DELEGATE(FAttackEndSignature)
 
 UCLASS()
 class FREEFLOWCOMBAT_API AEnemy : public ACharacter
@@ -23,6 +23,7 @@ public:
 
 	void GetHit(FVector ImpactDirection, EPunchType Punch);
 	void GetCountered();
+	void StopAttack();
 	USceneComponent* GetComponentWithTag(FName Tag);
 
 	void Attack();
@@ -30,7 +31,8 @@ public:
 	UPROPERTY(EditDefaultsOnly)
 	class UBehaviorTree* BTAsset;
 
-	FAttackEndDelegate AttackEndDelegate;
+	FAttackEndSignature AttackEndDelegate;
+
 
 protected:
 	// Called when the game starts or when spawned
@@ -39,8 +41,10 @@ protected:
 	void PlayMontageSection(UAnimMontage* Montage, FName SectionName);
 	void PlayRandomMontageSection(UAnimMontage* Montage);
 	bool WithinDistance(AActor* Target, float Distance);
-	void UpdateActionState();
+	bool WithinDistance(FVector TargetLocation, float Distance);
+
 	void MoveToTarget(AActor* Target);
+	void MoveToTarget(FVector TargetLocation);
 	void PossessedBy(AController* NewController);
 
 	void WarpToTarget();
@@ -49,6 +53,7 @@ protected:
 	void ClearAttackTimer();
 	double GetDirectionalTheta(FVector impact_point);
 	FName GetDirectionalSectionName(FVector ImpactPoint);
+	void UpdateActionState();
 
 	UPROPERTY(EditAnywhere)
 	double WarpTargetDistance = 75.f;
@@ -102,7 +107,7 @@ protected:
 	class AAIController* EnemyController;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-	EEnemyActionState ActionState = EEnemyActionState::EEAS_Chasing;
+	EEnemyActionState ActionState = EEnemyActionState::EEAS_Circling;
 
 	TArray<USceneComponent*> CounterPoints;
 
@@ -115,6 +120,8 @@ protected:
 	UPROPERTY(EditDefaultsOnly)
 	float AttackTime = 2.f;
 
+	FVector BaseLocation;
+
 public:	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
@@ -122,5 +129,6 @@ public:
 	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	FORCEINLINE EEnemyActionState GetActionState() const { return ActionState; }
+	FORCEINLINE void SetActionState(EEnemyActionState State) {ActionState = State;}
 
 };

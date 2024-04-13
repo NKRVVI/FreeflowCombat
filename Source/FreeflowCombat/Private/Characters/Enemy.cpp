@@ -68,13 +68,26 @@ void AEnemy::GetHit(FVector ImpactDirection, EPunchType PunchType)
 		GetupTimerDelegate.BindUObject(this, &ThisClass::GetUp, SectionName);
 		GetWorldTimerManager().SetTimer(GetUpTimer, GetupTimerDelegate, GetUpTime, false);
 		UE_LOG(LogTemp, Warning, TEXT("Knockout"));
+		AttackEndDelegate.Broadcast();
 	}
 }
 
 void AEnemy::GetCountered()
 {
+	ClearAttackTimer();
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	PlayRandomMontageSection(CounteredMontage);
 	ActionState = EEnemyActionState::EEAS_Down;
+
+}
+
+void AEnemy::StopAttack()
+{
+	if (GetMesh() && GetMesh()->GetAnimInstance())
+	{
+		GetMesh()->GetAnimInstance()->Montage_Pause();
+	}
 }
 
 USceneComponent* AEnemy::GetComponentWithTag(FName Tag)
@@ -92,8 +105,15 @@ USceneComponent* AEnemy::GetComponentWithTag(FName Tag)
 
 void AEnemy::Attack()
 {
-	ActionState = EEnemyActionState::EEAS_Attacking;
-	PlayRandomMontageSection(AttackMontage);
+	if (Player && !Player->GetCounterTarget())
+	{
+		PlayRandomMontageSection(AttackMontage);
+		ActionState = EEnemyActionState::EEAS_Attacking;
+	}
+	else
+	{
+		ActionState = EEnemyActionState::EEAS_Retreating;
+	}
 }
 
 // Called when the game starts or when spawned
@@ -104,6 +124,8 @@ void AEnemy::BeginPlay()
 	GetComponents(USceneComponent::StaticClass(), CounterPoints);
 
 	Player = Cast<AFreeflowCombatCharacter>(UGameplayStatics::GetPlayerCharacter(this, 0));
+
+	BaseLocation = GetActorLocation();
 }
 
 void AEnemy::PlayMontageSection(UAnimMontage* Montage, FName SectionName)
@@ -129,14 +151,14 @@ void AEnemy::PlayRandomMontageSection(UAnimMontage* Montage)
 
 void AEnemy::AttackEnd()
 {
+	ActionState = EEnemyActionState::EEAS_Retreating;
 	AttackEndDelegate.Broadcast();
-	ActionState = EEnemyActionState::EEAS_Chasing;
 }
 
 void AEnemy::GetupEnd()
 {
-	AttackEndDelegate.Broadcast();
 	ActionState = EEnemyActionState::EEAS_Chasing;
+	UE_LOG(LogTemp, Warning, TEXT("getupEnd"));
 }
 
 void AEnemy::HitLanded()
@@ -152,6 +174,10 @@ void AEnemy::HitLanded()
 void AEnemy::CounteredEnd()
 {
 	GetUp(FName());
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	GetMesh()->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	ActionState = EEnemyActionState::EEAS_Down;
+	AttackEndDelegate.Broadcast();
 }
 
 void AEnemy::SetPlayerCounterTarget()
@@ -178,7 +204,9 @@ void AEnemy::ResetPlayerCounterTarget()
 
 void AEnemy::HitReactEnd()
 {
+	if (ActionState == EEnemyActionState::EEAS_Down) return;
 	ActionState = EEnemyActionState::EEAS_Chasing;
+	UE_LOG(LogTemp, Warning, TEXT("HitReactEnd"));
 }
 
 void AEnemy::GetUp(FName SectionName)
@@ -193,12 +221,27 @@ bool AEnemy::WithinDistance(AActor* Target, float Distance)
 	return UKismetMathLibrary::VSizeXY(GetActorLocation() - Target->GetActorLocation()) <= Distance;
 }
 
+bool AEnemy::WithinDistance(FVector TargetLocation, float Distance)
+{
+	return UKismetMathLibrary::VSizeXY(GetActorLocation() - TargetLocation) <= Distance;
+}
+
 void AEnemy::MoveToTarget(AActor* Target)
 {
 	if (!EnemyController || !Target) return;
 
 	FAIMoveRequest MoveRequest;
 	MoveRequest.SetGoalActor(Target);
+	MoveRequest.SetAcceptanceRadius(50.f);
+	EnemyController->MoveTo(MoveRequest);
+}
+
+void AEnemy::MoveToTarget(FVector TargetLocation)
+{
+	if (!EnemyController) return;
+
+	FAIMoveRequest MoveRequest;
+	MoveRequest.SetGoalLocation(TargetLocation);
 	MoveRequest.SetAcceptanceRadius(50.f);
 	EnemyController->MoveTo(MoveRequest);
 }
@@ -291,25 +334,26 @@ FName AEnemy::GetDirectionalSectionName(FVector ImpactPoint)
 	return Section;
 }
 
-
 void AEnemy::UpdateActionState()
 {
-	if (ActionState < EEnemyActionState::EEAS_Chasing) return;
+	if (ActionState == EEnemyActionState::EEAS_Circling) return;
 
-	if (!WithinDistance(Player, AttackRadius) && ActionState != EEnemyActionState::EEAS_Attacking)
+	if (ActionState == EEnemyActionState::EEAS_Chasing && WithinDistance(Player, AttackRadius))
 	{
-		ClearAttackTimer();
-		MoveToTarget(Player);
-		ActionState = EEnemyActionState::EEAS_Chasing;
-		UE_LOG(LogTemp, Warning, TEXT("Chasing"));
+		ActionState = EEnemyActionState::EEAS_Attacking;
+		Attack();
 	}
-	else if(ActionState < EEnemyActionState::EEAS_Engaged)
+	else if(ActionState == EEnemyActionState::EEAS_Chasing)
 	{
-		//start attack timer
-		ClearAttackTimer();
-		GetWorldTimerManager().SetTimer(AttackTimer, this, &AEnemy::Attack, AttackTime);
-		ActionState = EEnemyActionState::EEAS_Engaged;
-		UE_LOG(LogTemp, Warning, TEXT("Attacking"));
+		MoveToTarget(Player);
+	}
+	else if (ActionState == EEnemyActionState::EEAS_Retreating && WithinDistance(BaseLocation, AttackRadius))
+	{
+		ActionState = EEnemyActionState::EEAS_Circling;
+	}
+	else if (ActionState == EEnemyActionState::EEAS_Retreating)
+	{
+		MoveToTarget(BaseLocation);
 	}
 }
 
@@ -318,10 +362,8 @@ void AEnemy::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	//UpdateActionState();
-
 	WarpToTarget();
-
+	UpdateActionState();
 }
 
 // Called to bind functionality to input

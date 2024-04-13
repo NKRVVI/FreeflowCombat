@@ -100,13 +100,16 @@ void AFreeflowCombatCharacter::BeginPlay()
 
 void AFreeflowCombatCharacter::WarpToTarget()
 {
-	if (CounterTarget && MotionWarpingComponent && ActionState == EFreeflowActionState::EFAS_Counter)
+	/*if (CounterTarget && MotionWarpingComponent && ActionState == EFreeflowActionState::EFAS_Counter)
 	{
 		MotionWarpingComponent->AddOrUpdateWarpTargetFromLocation(FName("TranslationTarget"), GetTranslationWarpTarget(CounterTarget));
 		MotionWarpingComponent->AddOrUpdateWarpTargetFromLocation(FName("RotationTarget"), GetRotationWarpTarget(CounterTarget));
+		UE_LOG(LogTemp, Warning, TEXT("Warping to the component"));
+		/*MotionWarpingComponent->AddOrUpdateWarpTargetFromLocation(FName("TranslationTarget"), GetTranslationWarpTarget(CounterTarget));
+		MotionWarpingComponent->AddOrUpdateWarpTargetFromLocation(FName("RotationTarget"), GetRotationWarpTarget(CounterTarget));
 
-	}
-	else if (CombatTarget && MotionWarpingComponent && ActionState == EFreeflowActionState::EFAS_Attacking)
+	}*/
+	if (CombatTarget && MotionWarpingComponent && (ActionState == EFreeflowActionState::EFAS_Attacking || ActionState == EFreeflowActionState::EFAS_Counter))
 	{
 		MotionWarpingComponent->AddOrUpdateWarpTargetFromLocation(FName("TranslationTarget"), GetTranslationWarpTarget(CombatTarget));
 		MotionWarpingComponent->AddOrUpdateWarpTargetFromLocation(FName("RotationTarget"), GetRotationWarpTarget(CombatTarget));
@@ -132,6 +135,17 @@ FVector AFreeflowCombatCharacter::GetTranslationWarpTarget(AActor* Target)
 	return CombatTargetLocation + TargetToMe;
 }
 
+FVector AFreeflowCombatCharacter::GetTranslationWarpTarget(FVector Target)
+{
+	const FVector Location = GetActorLocation();
+
+	FVector TargetToMe = (Location - Target).GetSafeNormal();
+	TargetToMe *= WarpTargetDistance;
+	return Target + TargetToMe;
+}
+
+
+
 FVector AFreeflowCombatCharacter::GetRotationWarpTarget(AActor* Target)
 {
 	if (Target)
@@ -139,6 +153,11 @@ FVector AFreeflowCombatCharacter::GetRotationWarpTarget(AActor* Target)
 		return Target->GetActorLocation();
 	}
 	return FVector();
+}
+
+FVector AFreeflowCombatCharacter::GetRotationWarpTarget(FVector Target)
+{
+	return Target;
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -178,16 +197,25 @@ void AFreeflowCombatCharacter::DodgeEnd()
 void AFreeflowCombatCharacter::CounterEnd()
 {
 	ActionState = EFreeflowActionState::EFAS_Unoccupied;
-	//CounterTarget = nullptr;
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	GetMesh()->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	CounterTarget = nullptr;
 }
 
 void AFreeflowCombatCharacter::CounterLanded()
 {
 	if (CounterTarget)
 	{
-		CounterTarget->GetCountered();
+		CounterTarget->GetHit(GetActorLocation(), EPunchType::EPT_Knockout);
+		UGameplayStatics::PlaySoundAtLocation(this, KnockoutSound, GetActorLocation());
 		CounterTarget = nullptr;
 	}
+}
+
+void AFreeflowCombatCharacter::BlockAttack()
+{
+	//CombatTarget->StopAttack();
+	UGameplayStatics::PlaySoundAtLocation(this, HitSound, GetActorLocation());
 }
 
 void AFreeflowCombatCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -220,7 +248,7 @@ void AFreeflowCombatCharacter::Move(const FInputActionValue& Value)
 	if (ActionState != EFreeflowActionState::EFAS_Unoccupied) return;
 	// input is a Vector2D
 	FVector2D MovementVector = Value.Get<FVector2D>();
-	UE_LOG(LogTemp, Warning, TEXT("%s"), *MovementVector.ToString());
+	//UE_LOG(LogTemp, Warning, TEXT("%s"), *MovementVector.ToString());
 
 	if (Controller != nullptr)
 	{
@@ -299,6 +327,7 @@ void AFreeflowCombatCharacter::Attack(const FInputActionValue& Value)
 {
 	if (!CombatTarget || ActionState != EFreeflowActionState::EFAS_Unoccupied || CombatTarget->GetActionState() == EEnemyActionState::EEAS_Down) return;
 
+	UE_LOG(LogTemp, Warning, TEXT("Enemy state is %i"), CombatTarget->GetActionState());
 	UAnimMontage* ChosenMontage = nullptr;
 
 	if (!LastCombatTarget || LastCombatTarget != CombatTarget)
@@ -341,7 +370,12 @@ void AFreeflowCombatCharacter::Jump()
 void AFreeflowCombatCharacter::Counter(const FInputActionValue& Value)
 {
 	if (!CounterTarget || ActionState == EFreeflowActionState::EFAS_Counter) return;
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	ActionState = EFreeflowActionState::EFAS_Counter;
+	CombatTarget = CounterTarget;
+	//CounterTarget->GetCountered();
+
 
 	PlayRandomMontageSection(DodgeMontage);
 }

@@ -15,8 +15,9 @@ enum class EEnemyActionState : uint8
 	EEAS_Dead UMETA(DisplayName = "Dead"),
 	EEAS_Down UMETA(DisplayName = "Down"),
 	EEAS_HitReaction UMETA(DisplayName = "HitReaction"),
+	EEAS_Circling UMETA(DisplayName = "Circling"),
+	EEAS_Retreating UMETA(DisplayName = "Retreating"),
 	EEAS_Chasing UMETA(DisplayName = "Chasing"),
-	EEAS_Engaged UMETA(DisplayName = "Engaged"),
 	EEAS_Attacking UMETA(DisplayName = "Attacking")
 };
 

@@ -18,7 +18,7 @@ EBTNodeResult::Type UBTTAttack::ExecuteTask(UBehaviorTreeComponent& OwnerComp, u
 	if (Self)
 	{
 		Self->Attack();
-		Self->AttackEndDelegate.AddLambda([&]() {FinishLatentTask(OwnerComp, EBTNodeResult::Succeeded); });
+		//Self->AttackEndDelegate.AddLambda([&]() {FinishLatentTask(OwnerComp, EBTNodeResult::Succeeded); });
 		return EBTNodeResult::InProgress;
 	}
 
