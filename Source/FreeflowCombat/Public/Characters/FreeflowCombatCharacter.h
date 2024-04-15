@@ -126,6 +126,7 @@ protected:
 	FVector GetTranslationWarpTarget(FVector Target);
 	FVector GetRotationWarpTarget(AActor* Target);
 	FVector GetRotationWarpTarget(FVector Target);
+	bool WithinDistance(AActor* Target, float Radius);
 
 	UPROPERTY()
 	class AEnemy* CombatTarget;
@@ -134,10 +135,10 @@ protected:
 	AEnemy* LastCombatTarget;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-	EPunchType CurrentPunchType = EPunchType::EPT_Standard;
+	EPunchType CurrentPunchType = EPunchType::EPT_Standard2;
 
 	UPROPERTY(VisibleAnywhere)
-	EPunchType LastPunchType = EPunchType::EPT_Standard;
+	EPunchType LastPunchType = EPunchType::EPT_Standard2;
 
 	UPROPERTY(BlueprintReadOnly)
 	AEnemy* CounterTarget;

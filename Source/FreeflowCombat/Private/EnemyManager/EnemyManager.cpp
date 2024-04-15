@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 
 #include "EnemyManager/EnemyManager.h"
@@ -36,12 +36,34 @@ void AEnemyManager::BeginPlay()
 
 void AEnemyManager::ChooseChasingEnemy()
 {
+
+	/*
+	Fisher-Yates shuffle algorithm in order to shuffle the tiles and choose the ones that will become obstacles
+	-- To shuffle an array a of n elements (indices 0..n-1):
+	for i from n−1 down to 1 do
+		j ← random integer such that 0 ≤ j ≤ i
+		exchange a[j] and a[i]
+	*/
+
+	for (int i = Enemies.Num() - 1; i >= 1; i--)
+	{
+		int j = FMath::RandRange(0, i);
+		AEnemy* SwapEnemy = Enemies[i];
+		Enemies[i] = Enemies[j];
+		Enemies[j] = SwapEnemy;
+	}
+
 	for (auto Enemy : Enemies)
 	{
-		if (Enemy->GetActionState() == EEnemyActionState::EEAS_Down) continue;
-		Enemy->SetActionState(EEnemyActionState::EEAS_Chasing);
-		break;
+		if (Enemy->GetCombatState() == EEnemyCombatState::EECS_Circling)
+		{
+			Enemy->SetCombatState(EEnemyCombatState::EECS_Chasing);
+			UE_LOG(LogTemp, Warning, TEXT("Enemy chosen"));
+			return;
+		}
 	}
+
+	UE_LOG(LogTemp, Warning, TEXT("No enemy chosen"));
 }
 
 // Called every frame

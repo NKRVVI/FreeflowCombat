@@ -15,6 +15,7 @@
 #include "DrawDebugHelpers.h"
 #include "MotionWarpingComponent.h"
 #include "Sound/SoundCue.h"
+#include "Kismet/KismetMathLibrary.h"
 
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
@@ -160,6 +161,12 @@ FVector AFreeflowCombatCharacter::GetRotationWarpTarget(FVector Target)
 	return Target;
 }
 
+bool AFreeflowCombatCharacter::WithinDistance(AActor* Target, float Radius)
+{
+	if (!Target) return false;
+	return UKismetMathLibrary::VSizeXY(GetActorLocation() - Target->GetActorLocation()) <= Radius;
+}
+
 //////////////////////////////////////////////////////////////////////////
 // Input
 
@@ -258,55 +265,55 @@ void AFreeflowCombatCharacter::Move(const FInputActionValue& Value)
 
 		// get forward vector
 		const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-	
-		// get right vector 
-		const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
 
-		// add movement 
-		AddMovementInput(ForwardDirection, MovementVector.Y);
-		AddMovementInput(RightDirection, MovementVector.X);
+// get right vector 
+const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
 
-		//////////////////////////////////////////////////////////////////////////////////////////////
-		//  FREEFLOW ENEMY SELECTION
+// add movement 
+AddMovementInput(ForwardDirection, MovementVector.Y);
+AddMovementInput(RightDirection, MovementVector.X);
 
-		if (MovementVector == FVector2D::ZeroVector)
-		{
-			return;
-		}
+//////////////////////////////////////////////////////////////////////////////////////////////
+//  FREEFLOW ENEMY SELECTION
 
-		FVector InputDirection = (ForwardDirection * MovementVector.Y + RightDirection * MovementVector.X).GetSafeNormal2D();
-		DrawDebugLine(GetWorld(), GetActorLocation(), GetActorLocation() + InputDirection * 1000, FColor::Orange, false);
+if (MovementVector == FVector2D::ZeroVector)
+{
+	return;
+}
 
-		TArray<AActor*> ClosestEnemies;
-		TArray<float> EnemyAngles;
+FVector InputDirection = (ForwardDirection * MovementVector.Y + RightDirection * MovementVector.X).GetSafeNormal2D();
+DrawDebugLine(GetWorld(), GetActorLocation(), GetActorLocation() + InputDirection * 1000, FColor::Orange, false);
 
-		float ClosestAngle = 180.f;
-		for (AEnemy* Enemy : Enemies)
-		{
-			if (Enemy->GetActionState() == EEnemyActionState::EEAS_Down) continue;
+TArray<AActor*> ClosestEnemies;
+TArray<float> EnemyAngles;
 
-			FVector DirectionToEnemy = (Enemy->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
-			float EnemyAngle = FMath::Abs(FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(InputDirection, DirectionToEnemy))));
-			Enemy->UpdateEnemyHUD(EnemyAngle);
-			if (EnemyAngle < ClosestAngle)
-			{
-				ClosestEnemies.Empty();
-				ClosestEnemies.Add(Enemy);
-				ClosestAngle = EnemyAngle;
-			}
-			else if (EnemyAngle == ClosestAngle)
-			{
-				ClosestEnemies.Add(Enemy);
-			}
+float ClosestAngle = 180.f;
+for (AEnemy* Enemy : Enemies)
+{
+	if (Enemy->GetCombatState() == EEnemyCombatState::EECS_Down) continue;
 
-		}
+	FVector DirectionToEnemy = (Enemy->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+	float EnemyAngle = FMath::Abs(FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(InputDirection, DirectionToEnemy))));
+	Enemy->UpdateEnemyHUD(EnemyAngle);
+	if (EnemyAngle < ClosestAngle)
+	{
+		ClosestEnemies.Empty();
+		ClosestEnemies.Add(Enemy);
+		ClosestAngle = EnemyAngle;
+	}
+	else if (EnemyAngle == ClosestAngle)
+	{
+		ClosestEnemies.Add(Enemy);
+	}
 
-		CombatTarget = nullptr;
-		for (auto Enemy : ClosestEnemies)
-		{
-			DrawDebugSphere(GetWorld(), Enemy->GetActorLocation(), 20, 12, FColor::Red, false);
-			CombatTarget = Cast<AEnemy>(Enemy);
-		}
+}
+
+CombatTarget = nullptr;
+for (auto Enemy : ClosestEnemies)
+{
+	DrawDebugSphere(GetWorld(), Enemy->GetActorLocation(), 20, 12, FColor::Red, false);
+	CombatTarget = Cast<AEnemy>(Enemy);
+}
 	}
 }
 
@@ -325,25 +332,58 @@ void AFreeflowCombatCharacter::Look(const FInputActionValue& Value)
 
 void AFreeflowCombatCharacter::Attack(const FInputActionValue& Value)
 {
-	if (!CombatTarget || ActionState != EFreeflowActionState::EFAS_Unoccupied || CombatTarget->GetActionState() == EEnemyActionState::EEAS_Down) return;
+	if (!CombatTarget || ActionState != EFreeflowActionState::EFAS_Unoccupied || CombatTarget->GetCombatState() == EEnemyCombatState::EECS_Down) return;
 
 	UE_LOG(LogTemp, Warning, TEXT("Enemy state is %i"), CombatTarget->GetActionState());
 	UAnimMontage* ChosenMontage = nullptr;
 
-	if (!LastCombatTarget || LastCombatTarget != CombatTarget)
+	/*CurrentPunchType = static_cast<EPunchType>(static_cast<int32>(CombatTarget->GetLastReceivedPunch()) + 1);
+
+	if (CurrentPunchType == EPunchType::EPT_Standard2)
+	{
+		ChosenMontage = StandardAttackMontage;
+	}
+	else if (CurrentPunchType == EPunchType::EPT_Freeflow)
+	{
+		ChosenMontage = FreeflowAttackMontage;
+	}
+	else if (CurrentPunchType == EPunchType::EPT_Knockout)
+	{
+		ChosenMontage = KnockoutAttackMontage;
+	}*/
+
+	EPunchType EnemyPunch = CombatTarget->GetLastReceivedPunch();
+
+	if (EnemyPunch == EPunchType::EPT_NoPunch && WithinDistance(CombatTarget, 300.f))
+	{
+		CurrentPunchType = EPunchType::EPT_Standard1;
+		ChosenMontage = StandardAttackMontage;
+	}
+	else if (EnemyPunch == EPunchType::EPT_NoPunch)
 	{
 		CurrentPunchType = EPunchType::EPT_Freeflow;
 		ChosenMontage = FreeflowAttackMontage;
 	}
-	else if (LastCombatTarget == CombatTarget && CurrentPunchType == EPunchType::EPT_Freeflow)
+	else if (EnemyPunch == EPunchType::EPT_Standard1 && WithinDistance(CombatTarget, 300.f))
 	{
-		CurrentPunchType = EPunchType::EPT_Standard;
+		CurrentPunchType = EPunchType::EPT_Standard2;
 		ChosenMontage = StandardAttackMontage;
 	}
-	else if (LastCombatTarget == CombatTarget && CurrentPunchType == EPunchType::EPT_Standard)
+	else if (EnemyPunch == EPunchType::EPT_Freeflow && WithinDistance(CombatTarget, 300.f))
+	{
+		CurrentPunchType = EPunchType::EPT_Standard2;
+		ChosenMontage = StandardAttackMontage;
+	}
+	else if (EnemyPunch == EPunchType::EPT_Standard2 && WithinDistance(CombatTarget, 300.f))
 	{
 		CurrentPunchType = EPunchType::EPT_Knockout;
 		ChosenMontage = KnockoutAttackMontage;
+	}
+
+	if (!ChosenMontage)
+	{
+		ActionState = EFreeflowActionState::EFAS_Unoccupied;
+		return;
 	}
 
 	LastCombatTarget = CombatTarget;

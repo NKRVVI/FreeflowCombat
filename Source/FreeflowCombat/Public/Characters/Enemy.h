@@ -107,7 +107,10 @@ protected:
 	class AAIController* EnemyController;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-	EEnemyActionState ActionState = EEnemyActionState::EEAS_Circling;
+	EEnemyActionState ActionState = EEnemyActionState::EEAS_Unoccupied;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	EEnemyCombatState CombatState = EEnemyCombatState::EECS_Circling;
 
 	TArray<USceneComponent*> CounterPoints;
 
@@ -122,6 +125,9 @@ protected:
 
 	FVector BaseLocation;
 
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere)
+	EPunchType LastReceivedPunch = EPunchType::EPT_NoPunch;
+
 public:	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
@@ -130,5 +136,7 @@ public:
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	FORCEINLINE EEnemyActionState GetActionState() const { return ActionState; }
 	FORCEINLINE void SetActionState(EEnemyActionState State) {ActionState = State;}
-
+	FORCEINLINE void SetCombatState(EEnemyCombatState State) { CombatState = State; }
+	FORCEINLINE EEnemyCombatState GetCombatState() const { return CombatState; }
+	FORCEINLINE EPunchType GetLastReceivedPunch() const { return LastReceivedPunch; }
 };

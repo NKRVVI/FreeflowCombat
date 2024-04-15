@@ -22,6 +22,6 @@ class FREEFLOWCOMBAT_API UBTDCheckActionState : public UBTDecorator
 	FBlackboardKeySelector ActionStateKey;
 
 	UPROPERTY(EditAnywhere)
-	EEnemyActionState ActionState = EEnemyActionState::EEAS_Chasing;
+	EEnemyActionState ActionState = EEnemyActionState::EEAS_Unoccupied;
 
 };
