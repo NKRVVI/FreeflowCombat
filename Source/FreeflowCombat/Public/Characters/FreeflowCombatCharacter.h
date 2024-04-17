@@ -111,8 +111,13 @@ protected:
 	UFUNCTION(BlueprintCallable)
 	void BlockAttack();
 
+	UFUNCTION(BlueprintCallable)
+	void StartCameraLerp();
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	EFreeflowActionState ActionState = EFreeflowActionState::EFAS_Unoccupied;
+
+	bool IsLastEnemy();
 
 protected:
 	// APawn interface
@@ -127,8 +132,13 @@ protected:
 	FVector GetRotationWarpTarget(AActor* Target);
 	FVector GetRotationWarpTarget(FVector Target);
 	bool WithinDistance(AActor* Target, float Radius);
+	void LerpCamera();
 
-	UPROPERTY()
+	FTimerHandle CameraLerpTimerHandle;
+	float CameraInterpRate = 10.f;
+	
+
+	UPROPERTY(BlueprintReadOnly)
 	class AEnemy* CombatTarget;
 
 	UPROPERTY()
@@ -169,6 +179,9 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly)
 	USoundCue* KnockoutSound;
+
+	UPROPERTY()
+	UCameraComponent* KnockoutCamera;
 
 public:
 	/** Returns CameraBoom subobject **/

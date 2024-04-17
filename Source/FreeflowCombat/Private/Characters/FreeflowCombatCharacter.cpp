@@ -97,6 +97,12 @@ void AFreeflowCombatCharacter::BeginPlay()
 	{
 		Enemies.Add(Cast<AEnemy>(Actor));
 	}
+
+	KnockoutCamera = FindComponentByTag<UCameraComponent>(FName("KnockoutCameraView"));
+	if (KnockoutCamera)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Found knockout camera"));
+	}
 }
 
 void AFreeflowCombatCharacter::WarpToTarget()
@@ -167,6 +173,16 @@ bool AFreeflowCombatCharacter::WithinDistance(AActor* Target, float Radius)
 	return UKismetMathLibrary::VSizeXY(GetActorLocation() - Target->GetActorLocation()) <= Radius;
 }
 
+void AFreeflowCombatCharacter::LerpCamera()
+{
+	FTransform InterpTransform = UKismetMathLibrary::TInterpTo(FollowCamera->GetComponentTransform(), KnockoutCamera->GetComponentTransform(), GetWorld()->GetDeltaSeconds(), CameraInterpRate);
+	FollowCamera->SetWorldTransform(InterpTransform);
+
+	//if (InterpTransform.Equals(FollowCamera->GetComponentTransform(), 0.1f)) return;
+
+	GetWorldTimerManager().SetTimer(CameraLerpTimerHandle, this, &ThisClass::LerpCamera, GetWorld()->GetDeltaSeconds());
+}
+
 //////////////////////////////////////////////////////////////////////////
 // Input
 
@@ -225,6 +241,35 @@ void AFreeflowCombatCharacter::BlockAttack()
 	UGameplayStatics::PlaySoundAtLocation(this, HitSound, GetActorLocation());
 }
 
+void AFreeflowCombatCharacter::StartCameraLerp()
+{
+	if (IsLastEnemy())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Is last enemy"));
+		DisableInput(Cast<APlayerController>(GetController()));
+		CameraBoom->bUsePawnControlRotation = false;
+		UGameplayStatics::SetGlobalTimeDilation(this, 0.5f);
+		LerpCamera();
+	}
+}
+
+bool AFreeflowCombatCharacter::IsLastEnemy()
+{
+	for (auto Enemy : Enemies)
+	{
+		if (CombatTarget)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Combat target name is %s and enemy name is %s"), *CombatTarget->GetName(), *Enemy->GetName());
+		}
+		if (Enemy == CombatTarget) continue;
+		if (Enemy->GetCombatState() != EEnemyCombatState::EECS_Down)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 void AFreeflowCombatCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	// Set up action bindings
@@ -266,55 +311,55 @@ void AFreeflowCombatCharacter::Move(const FInputActionValue& Value)
 		// get forward vector
 		const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
 
-// get right vector 
-const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+	// get right vector 
+	const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
 
-// add movement 
-AddMovementInput(ForwardDirection, MovementVector.Y);
-AddMovementInput(RightDirection, MovementVector.X);
+	// add movement 
+	AddMovementInput(ForwardDirection, MovementVector.Y);
+	AddMovementInput(RightDirection, MovementVector.X);
 
-//////////////////////////////////////////////////////////////////////////////////////////////
-//  FREEFLOW ENEMY SELECTION
+	//////////////////////////////////////////////////////////////////////////////////////////////
+	//  FREEFLOW ENEMY SELECTION
 
-if (MovementVector == FVector2D::ZeroVector)
-{
-	return;
-}
-
-FVector InputDirection = (ForwardDirection * MovementVector.Y + RightDirection * MovementVector.X).GetSafeNormal2D();
-DrawDebugLine(GetWorld(), GetActorLocation(), GetActorLocation() + InputDirection * 1000, FColor::Orange, false);
-
-TArray<AActor*> ClosestEnemies;
-TArray<float> EnemyAngles;
-
-float ClosestAngle = 180.f;
-for (AEnemy* Enemy : Enemies)
-{
-	if (Enemy->GetCombatState() == EEnemyCombatState::EECS_Down) continue;
-
-	FVector DirectionToEnemy = (Enemy->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
-	float EnemyAngle = FMath::Abs(FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(InputDirection, DirectionToEnemy))));
-	Enemy->UpdateEnemyHUD(EnemyAngle);
-	if (EnemyAngle < ClosestAngle)
+	if (MovementVector == FVector2D::ZeroVector)
 	{
-		ClosestEnemies.Empty();
-		ClosestEnemies.Add(Enemy);
-		ClosestAngle = EnemyAngle;
+		return;
 	}
-	else if (EnemyAngle == ClosestAngle)
+
+	FVector InputDirection = (ForwardDirection * MovementVector.Y + RightDirection * MovementVector.X).GetSafeNormal2D();
+	DrawDebugLine(GetWorld(), GetActorLocation(), GetActorLocation() + InputDirection * 1000, FColor::Orange, false);
+
+	TArray<AActor*> ClosestEnemies;
+	TArray<float> EnemyAngles;
+
+	float ClosestAngle = 180.f;
+	for (AEnemy* Enemy : Enemies)
 	{
-		ClosestEnemies.Add(Enemy);
+		if (Enemy->GetCombatState() == EEnemyCombatState::EECS_Down) continue;
+
+		FVector DirectionToEnemy = (Enemy->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+		float EnemyAngle = FMath::Abs(FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(InputDirection, DirectionToEnemy))));
+		Enemy->UpdateEnemyHUD(EnemyAngle);
+		if (EnemyAngle < ClosestAngle)
+		{
+			ClosestEnemies.Empty();
+			ClosestEnemies.Add(Enemy);
+			ClosestAngle = EnemyAngle;
+		}
+		else if (EnemyAngle == ClosestAngle)
+		{
+			ClosestEnemies.Add(Enemy);
+		}
+
 	}
 
-}
-
-CombatTarget = nullptr;
-for (auto Enemy : ClosestEnemies)
-{
-	DrawDebugSphere(GetWorld(), Enemy->GetActorLocation(), 20, 12, FColor::Red, false);
-	CombatTarget = Cast<AEnemy>(Enemy);
-}
+	CombatTarget = nullptr;
+	for (auto Enemy : ClosestEnemies)
+	{
+		DrawDebugSphere(GetWorld(), Enemy->GetActorLocation(), 20, 12, FColor::Red, false);
+		CombatTarget = Cast<AEnemy>(Enemy);
 	}
+		}
 }
 
 void AFreeflowCombatCharacter::Look(const FInputActionValue& Value)
